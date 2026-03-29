@@ -93,13 +93,12 @@ def test_default_heartbeat_md_mentions_session_skill_report(tmp_path):
 
     content = (tmp_path / "HEARTBEAT.md").read_text(encoding="utf-8")
 
-    assert "copaw session-skill-report" in content
     assert "python -m copaw.app.session_skill_report" in content
-    assert "python3" not in content
+    assert "copaw session-skill-report" not in content
 
 
 def test_init_default_heartbeat_template_mentions_session_skill_report():
     content = DEFAULT_HEARTBEAT_MDS["en"]
 
-    assert "copaw session-skill-report" in content
     assert "python -m copaw.app.session_skill_report" in content
+    assert "copaw session-skill-report" not in content
