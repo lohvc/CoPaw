@@ -112,6 +112,11 @@ from .shutdown_cmd import shutdown_cmd  # noqa: E402
 _record(".shutdown_cmd", time.perf_counter() - _t)
 
 _t = time.perf_counter()
+from .session_skill_report_cmd import session_skill_report_cmd  # noqa: E402
+
+_record(".session_skill_report_cmd", time.perf_counter() - _t)
+
+_t = time.perf_counter()
 from .auth_cmd import auth_group  # noqa: E402
 
 _record(".auth_cmd", time.perf_counter() - _t)
@@ -169,4 +174,5 @@ cli.add_command(uninstall_cmd)
 cli.add_command(desktop_cmd)
 cli.add_command(update_cmd)
 cli.add_command(shutdown_cmd)
+cli.add_command(session_skill_report_cmd)
 cli.add_command(auth_group)
