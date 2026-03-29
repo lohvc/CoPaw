@@ -540,8 +540,7 @@ def _ensure_default_heartbeat_md(workspace_dir: Path, language: str) -> None:
         return
     default_by_lang = {
         "zh": """# Heartbeat checklist
-- 先执行 `copaw session-skill-report`
-- 若 `copaw` 命令不可用，再执行 `python -m copaw.app.session_skill_report`
+- 执行 `python -m copaw.app.session_skill_report`
 - 必须解析命令输出的 JSON 摘要，不要只看退出码
 - 扫描收件箱紧急邮件
 - 查看未来 2h 的日历
@@ -549,18 +548,14 @@ def _ensure_default_heartbeat_md(workspace_dir: Path, language: str) -> None:
 - 若安静超过 8h，轻量 check-in
 """,
         "en": """# Heartbeat checklist
-- First run `copaw session-skill-report`
-- If the `copaw` command is unavailable, run `python -m copaw.app.session_skill_report`
-- Parse the JSON summary from command output instead of relying on exit code alone
+- run `python -m copaw.app.session_skill_report`
 - Scan inbox for urgent email
 - Check calendar for next 2h
 - Check tasks for blockers
 - Light check-in if quiet for 8h
 """,
         "ru": """# Heartbeat checklist
-- Сначала выполните `copaw session-skill-report`
-- Если команда `copaw` недоступна, выполните `python -m copaw.app.session_skill_report`
-- Разберите JSON-сводку из вывода команды и не полагайтесь только на код выхода
+- выполните `python -m copaw.app.session_skill_report`
 - Проверить входящие на срочные письма
 - Просмотреть календарь на ближайшие 2 часа
 - Проверить задачи на наличие блокировок
