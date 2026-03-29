@@ -2,6 +2,8 @@
 """Tests for agent creation with short UUID."""
 from unittest.mock import patch
 
+from copaw.app.routers.agents import _ensure_default_heartbeat_md
+from copaw.cli.init_cmd import DEFAULT_HEARTBEAT_MDS
 from copaw.config.config import (
     AgentProfileConfig,
     generate_short_agent_id,
@@ -84,3 +86,20 @@ def test_short_uuid_properties():
         assert "l" not in agent_id  # Excluded by shortuuid
         assert "O" not in agent_id  # Excluded by shortuuid
         assert "0" not in agent_id  # Excluded by shortuuid
+
+
+def test_default_heartbeat_md_mentions_session_skill_report(tmp_path):
+    _ensure_default_heartbeat_md(tmp_path, "en")
+
+    content = (tmp_path / "HEARTBEAT.md").read_text(encoding="utf-8")
+
+    assert "copaw session-skill-report" in content
+    assert "python -m copaw.app.session_skill_report" in content
+    assert "python3" not in content
+
+
+def test_init_default_heartbeat_template_mentions_session_skill_report():
+    content = DEFAULT_HEARTBEAT_MDS["en"]
+
+    assert "copaw session-skill-report" in content
+    assert "python -m copaw.app.session_skill_report" in content
