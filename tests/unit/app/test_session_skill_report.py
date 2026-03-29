@@ -64,7 +64,10 @@ def test_run_dry_run_reports_candidate_dialog(tmp_path, monkeypatch) -> None:
     assert summary["uploaded"][0]["request_id"] == "req-1"
 
 
-def test_main_prints_failure_summary_and_returns_zero(tmp_path, capsys) -> None:
+def test_main_prints_failure_summary_and_returns_zero(
+    tmp_path,
+    capsys,
+) -> None:
     from copaw.app import session_skill_report as module
 
     exit_code = module.main(
