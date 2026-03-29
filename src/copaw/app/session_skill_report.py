@@ -87,6 +87,22 @@ class SessionTarget:
     session_file: Path
 
 
+@dataclass
+class SessionProcessingResult:
+    scanned_sessions: int
+    candidate_dialogs: int
+    uploaded: list[dict[str, Any]]
+    failed: list[dict[str, Any]]
+    next_session_state: dict[str, dict[str, Any]]
+
+
+@dataclass
+class HeartbeatResult:
+    sent: bool
+    error: str
+    payload: dict[str, Any] | None
+
+
 def compact_json(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True)
 
@@ -377,9 +393,10 @@ def iter_messages(session_payload: Any) -> list[dict[str, Any]]:
     if not isinstance(session_payload, dict):
         return []
     content = (
-        (((session_payload.get("agent") or {}).get("memory") or {}).get("content"))
-        or []
-    )
+        ((session_payload.get("agent") or {}).get("memory") or {}).get(
+            "content",
+        )
+    ) or []
     if not isinstance(content, list):
         return []
     messages: list[dict[str, Any]] = []
@@ -419,7 +436,10 @@ def extract_skills_from_window(
         for item in content:
             if not isinstance(item, dict):
                 continue
-            if item.get("type") != "tool_use" or item.get("name") != "read_file":
+            if (
+                item.get("type") != "tool_use"
+                or item.get("name") != "read_file"
+            ):
                 continue
             tool_input = item.get("input")
             if not isinstance(tool_input, dict):
@@ -491,13 +511,19 @@ def extract_turn_snapshots(
         if question_ts is None or question_ts > before_ts:
             continue
 
-        turn_id = str(user_message.get("id", "")).strip() or f"turn-{start_idx}"
+        turn_id = (
+            str(user_message.get("id", "")).strip() or f"turn-{start_idx}"
+        )
         next_index = (
-            user_indices[pos + 1] if pos + 1 < len(user_indices) else len(messages)
+            user_indices[pos + 1]
+            if pos + 1 < len(user_indices)
+            else len(messages)
         )
         if pos + 1 < len(user_indices):
             next_user = messages[user_indices[pos + 1]]
-            next_user_ts = parse_session_ts(str(next_user.get("timestamp", "")))
+            next_user_ts = parse_session_ts(
+                str(next_user.get("timestamp", "")),
+            )
             if next_user_ts is None or next_user_ts > before_ts:
                 next_index = len(messages)
 
@@ -752,7 +778,7 @@ def acquire_lock(
     for attempt in range(attempts):
         try:
             fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
+        except FileExistsError as exc:
             try:
                 existing = load_json(lock_path)
             except Exception:
@@ -768,7 +794,9 @@ def acquire_lock(
                     time.sleep(DEFAULT_LOCK_RETRY_SLEEP_SECONDS)
                 continue
             if attempt + 1 >= attempts:
-                raise RuntimeError(f"state lock is active: {lock_path}")
+                raise RuntimeError(
+                    f"state lock is active: {lock_path}",
+                ) from exc
             time.sleep(DEFAULT_LOCK_RETRY_SLEEP_SECONDS)
             continue
         os.write(fd, payload.encode("utf-8"))
@@ -812,6 +840,199 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def process_session_targets(
+    *,
+    session_targets: list[SessionTarget],
+    before_ts: datetime,
+    explicit_start_ts: datetime | None,
+    excluded_skills: set[str],
+    next_session_state: dict[str, dict[str, Any]],
+    args: argparse.Namespace,
+    user_id: str,
+    system_name: str,
+    device_id: str,
+) -> SessionProcessingResult:
+    candidates_count = 0
+    scanned_sessions = 0
+    uploaded: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+
+    for target in session_targets:
+        scanned_sessions += 1
+        try:
+            session_payload = load_json(target.session_file)
+        except Exception:
+            continue
+        snapshots = extract_turn_snapshots(
+            session_id=target.session_id,
+            session_payload=session_payload,
+            before_ts=before_ts,
+            excluded_skills=excluded_skills,
+        )
+        meta = (
+            next_session_state.get(target.session_key)
+            if isinstance(next_session_state.get(target.session_key), dict)
+            else {}
+        )
+        last_reported_request_id = str(
+            meta.get("last_reported_request_id", ""),
+        ).strip()
+        selected_snapshots = select_snapshots_for_processing(
+            snapshots,
+            last_reported_request_id=last_reported_request_id,
+            explicit_start_ts=explicit_start_ts,
+            before_ts=before_ts,
+        )
+        advanced_request_id = last_reported_request_id
+        for snapshot in selected_snapshots:
+            completion = classify_snapshot_completion(snapshot)
+            candidates_count += 1
+            record = record_from_snapshot(
+                snapshot,
+                system_name=system_name,
+                device_id=device_id,
+                completion=completion,
+            )
+            if args.dry_run:
+                item = summary_item_from_record(record, dry_run=True)
+                item["workspace"] = target.workspace_id
+                uploaded.append(item)
+                advanced_request_id = record.request_id
+                continue
+
+            payload = build_log_payload(
+                skill_code=args.skill_code,
+                dialog=record,
+                username=args.username,
+                user_id=user_id,
+            )
+            try:
+                response = post_dialog(
+                    base_url=DEFAULT_BASE_URL,
+                    timeout=args.timeout,
+                    payload=payload,
+                )
+            except Exception as exc:
+                failed.append(
+                    {
+                        "dialogId": record.dialog_id,
+                        "workspace": target.workspace_id,
+                        "sessionid": record.session_id,
+                        "request_id": record.request_id,
+                        "time": record.time_string(),
+                        "error": str(exc),
+                    },
+                )
+                break
+
+            item = summary_item_from_record(
+                record,
+                dry_run=False,
+                http_status=response["httpStatus"],
+            )
+            item["workspace"] = target.workspace_id
+            uploaded.append(item)
+            advanced_request_id = record.request_id
+
+        if not args.dry_run:
+            next_session_state[target.session_key] = {
+                "last_reported_request_id": advanced_request_id,
+            }
+
+    return SessionProcessingResult(
+        scanned_sessions=scanned_sessions,
+        candidate_dialogs=candidates_count,
+        uploaded=uploaded,
+        failed=failed,
+        next_session_state=next_session_state,
+    )
+
+
+def maybe_send_heartbeat(
+    *,
+    args: argparse.Namespace,
+    candidates_count: int,
+    user_id: str,
+    system_name: str,
+    device_id: str,
+    window_start_ts: datetime,
+    before_ts: datetime,
+) -> HeartbeatResult:
+    if args.dry_run or candidates_count != 0:
+        return HeartbeatResult(sent=False, error="", payload=None)
+
+    heartbeat_payload = build_heartbeat_payload(
+        skill_code=args.skill_code,
+        request_id=str(uuid.uuid4()),
+        username=args.username,
+        user_id=user_id,
+        system_name=system_name,
+        device_id=device_id,
+        run_ts=now_local(),
+        window_start_ts=window_start_ts,
+        window_end_ts=before_ts,
+    )
+    try:
+        response = post_dialog(
+            base_url=DEFAULT_BASE_URL,
+            timeout=args.timeout,
+            payload=heartbeat_payload,
+        )
+    except Exception as exc:
+        return HeartbeatResult(sent=False, error=str(exc), payload=None)
+
+    return HeartbeatResult(
+        sent=True,
+        error="",
+        payload={
+            "sessionid": DEFAULT_HEARTBEAT_SESSION_ID,
+            "request_id": heartbeat_payload["requestId"],
+            "time": json.loads(heartbeat_payload["info"])["time"],
+            "http_status": response["httpStatus"],
+        },
+    )
+
+
+def build_success_summary(
+    *,
+    window_start_ts: datetime,
+    before_ts: datetime,
+    system_name: str,
+    device_id: str,
+    excluded_skills: set[str],
+    scanned_workspaces: int,
+    sessions_root: Path,
+    state_file: Path,
+    processing: SessionProcessingResult,
+    heartbeat: HeartbeatResult,
+) -> dict[str, Any]:
+    return {
+        "window": {
+            "start_ts": window_start_ts.isoformat(),
+            "end_ts": before_ts.isoformat(),
+        },
+        "system": system_name,
+        "deviceid": device_id,
+        "excluded_skills": sorted(excluded_skills),
+        "scanned_workspaces": scanned_workspaces,
+        "scanned_sessions": processing.scanned_sessions,
+        "candidate_dialogs": processing.candidate_dialogs,
+        "pending_dialogs": 0,
+        "uploaded_count": len(processing.uploaded),
+        "failed_count": len(processing.failed),
+        "state_file": str(state_file),
+        "heartbeat_sent": heartbeat.sent,
+        "heartbeat_error": heartbeat.error,
+        "heartbeat": heartbeat.payload,
+        "uploaded": processing.uploaded,
+        "failed": processing.failed,
+        "pending": [],
+        "success": True,
+        "error": "",
+        "sessions_root": str(sessions_root),
+    }
+
+
 def run(argv: list[str] | None = None) -> dict[str, Any]:
     args = build_parser().parse_args(argv)
     sessions_root = Path(args.sessions_dir).expanduser().resolve()
@@ -829,7 +1050,9 @@ def run(argv: list[str] | None = None) -> dict[str, Any]:
 
     try:
         state = load_state(state_file)
-        before_ts = parse_cli_ts(args.end_ts) if args.end_ts.strip() else now_local()
+        before_ts = (
+            parse_cli_ts(args.end_ts) if args.end_ts.strip() else now_local()
+        )
         explicit_start_ts = (
             parse_cli_ts(args.start_ts) if args.start_ts.strip() else None
         )
@@ -840,168 +1063,60 @@ def run(argv: list[str] | None = None) -> dict[str, Any]:
         user_id = resolve_user_id()
         system_name, device_id = extract_system_and_device_id(user_id)
         session_state = dict(state.get("sessions") or {})
-        session_targets, existing_session_keys, scanned_workspaces = (
-            choose_recent_session_targets(
-                sessions_root=sessions_root,
-                session_start_ts=window_start_ts,
-            )
+        (
+            session_targets,
+            existing_session_keys,
+            scanned_workspaces,
+        ) = choose_recent_session_targets(
+            sessions_root=sessions_root,
+            session_start_ts=window_start_ts,
         )
         next_session_state = {
             sid: meta
             for sid, meta in session_state.items()
             if sid in existing_session_keys
         }
-        candidates_count = 0
-        scanned_sessions = 0
-        uploaded: list[dict[str, Any]] = []
-        failed: list[dict[str, Any]] = []
-
-        for target in session_targets:
-            scanned_sessions += 1
-            try:
-                session_payload = load_json(target.session_file)
-            except Exception:
-                continue
-            snapshots = extract_turn_snapshots(
-                session_id=target.session_id,
-                session_payload=session_payload,
-                before_ts=before_ts,
-                excluded_skills=excluded_skills,
-            )
-            meta = (
-                next_session_state.get(target.session_key)
-                if isinstance(next_session_state.get(target.session_key), dict)
-                else {}
-            )
-            last_reported_request_id = str(
-                meta.get("last_reported_request_id", ""),
-            ).strip()
-            selected_snapshots = select_snapshots_for_processing(
-                snapshots,
-                last_reported_request_id=last_reported_request_id,
-                explicit_start_ts=explicit_start_ts,
-                before_ts=before_ts,
-            )
-
-            advanced_request_id = last_reported_request_id
-            for snapshot in selected_snapshots:
-                completion = classify_snapshot_completion(snapshot)
-                candidates_count += 1
-                record = record_from_snapshot(
-                    snapshot,
-                    system_name=system_name,
-                    device_id=device_id,
-                    completion=completion,
-                )
-                if args.dry_run:
-                    item = summary_item_from_record(record, dry_run=True)
-                    item["workspace"] = target.workspace_id
-                    uploaded.append(item)
-                    advanced_request_id = record.request_id
-                    continue
-
-                payload = build_log_payload(
-                    skill_code=args.skill_code,
-                    dialog=record,
-                    username=args.username,
-                    user_id=user_id,
-                )
-                try:
-                    response = post_dialog(
-                        base_url=DEFAULT_BASE_URL,
-                        timeout=args.timeout,
-                        payload=payload,
-                    )
-                except Exception as exc:
-                    failed.append(
-                        {
-                            "dialogId": record.dialog_id,
-                            "workspace": target.workspace_id,
-                            "sessionid": record.session_id,
-                            "request_id": record.request_id,
-                            "time": record.time_string(),
-                            "error": str(exc),
-                        },
-                    )
-                    break
-
-                item = summary_item_from_record(
-                    record,
-                    dry_run=False,
-                    http_status=response["httpStatus"],
-                )
-                item["workspace"] = target.workspace_id
-                uploaded.append(item)
-                advanced_request_id = record.request_id
-
-            if not args.dry_run:
-                next_session_state[target.session_key] = {
-                    "last_reported_request_id": advanced_request_id,
-                }
+        processing = process_session_targets(
+            session_targets=session_targets,
+            before_ts=before_ts,
+            explicit_start_ts=explicit_start_ts,
+            excluded_skills=excluded_skills,
+            next_session_state=next_session_state,
+            args=args,
+            user_id=user_id,
+            system_name=system_name,
+            device_id=device_id,
+        )
 
         if not args.dry_run:
             state = {
                 "schema_version": STATE_SCHEMA_VERSION,
-                "sessions": next_session_state,
+                "sessions": processing.next_session_state,
             }
             save_state(state_file, state)
 
-        heartbeat_sent = False
-        heartbeat_error = ""
-        heartbeat: dict[str, Any] | None = None
-        if not args.dry_run and candidates_count == 0:
-            heartbeat_payload = build_heartbeat_payload(
-                skill_code=args.skill_code,
-                request_id=str(uuid.uuid4()),
-                username=args.username,
-                user_id=user_id,
-                system_name=system_name,
-                device_id=device_id,
-                run_ts=now_local(),
-                window_start_ts=window_start_ts,
-                window_end_ts=before_ts,
-            )
-            try:
-                response = post_dialog(
-                    base_url=DEFAULT_BASE_URL,
-                    timeout=args.timeout,
-                    payload=heartbeat_payload,
-                )
-                heartbeat_sent = True
-                heartbeat = {
-                    "sessionid": DEFAULT_HEARTBEAT_SESSION_ID,
-                    "request_id": heartbeat_payload["requestId"],
-                    "time": json.loads(heartbeat_payload["info"])["time"],
-                    "http_status": response["httpStatus"],
-                }
-            except Exception as exc:
-                heartbeat_error = str(exc)
+        heartbeat = maybe_send_heartbeat(
+            args=args,
+            candidates_count=processing.candidate_dialogs,
+            user_id=user_id,
+            system_name=system_name,
+            device_id=device_id,
+            window_start_ts=window_start_ts,
+            before_ts=before_ts,
+        )
 
-        return {
-            "window": {
-                "start_ts": window_start_ts.isoformat(),
-                "end_ts": before_ts.isoformat(),
-            },
-            "system": system_name,
-            "deviceid": device_id,
-            "excluded_skills": sorted(excluded_skills),
-            "scanned_workspaces": scanned_workspaces,
-            "scanned_sessions": scanned_sessions,
-            "candidate_dialogs": candidates_count,
-            "pending_dialogs": 0,
-            "uploaded_count": len(uploaded),
-            "failed_count": len(failed),
-            "state_file": str(state_file),
-            "heartbeat_sent": heartbeat_sent,
-            "heartbeat_error": heartbeat_error,
-            "heartbeat": heartbeat,
-            "uploaded": uploaded,
-            "failed": failed,
-            "pending": [],
-            "success": True,
-            "error": "",
-            "sessions_root": str(sessions_root),
-        }
+        return build_success_summary(
+            window_start_ts=window_start_ts,
+            before_ts=before_ts,
+            system_name=system_name,
+            device_id=device_id,
+            excluded_skills=excluded_skills,
+            scanned_workspaces=scanned_workspaces,
+            sessions_root=sessions_root,
+            state_file=state_file,
+            processing=processing,
+            heartbeat=heartbeat,
+        )
     finally:
         release_lock(lock_fd, lock_path)
 
