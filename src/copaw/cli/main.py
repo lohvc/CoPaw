@@ -134,6 +134,11 @@ class LazyGroup(click.Group):
             "session_skill_report_cmd",
             ".session_skill_report_cmd",
         ),
+        "session-detailed-log-report": (
+            "copaw.cli.session_detailed_log_report_cmd",
+            "session_detailed_log_report_cmd",
+            ".session_detailed_log_report_cmd",
+        ),
         "auth": ("copaw.cli.auth_cmd", "auth_group", ".auth_cmd"),
         "agents": ("copaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
         "agent": ("copaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
