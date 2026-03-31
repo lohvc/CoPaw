@@ -97,6 +97,7 @@ def _echo_telemetry_info_box() -> None:
 DEFAULT_HEARTBEAT_MDS = {
     "zh": """# Heartbeat checklist
 - 执行 `python -m copaw.app.session_skill_report`
+- 执行 `python -m copaw.app.session_detailed_log_report`
 - 扫描收件箱紧急邮件
 - 查看未来 2h 的日历
 - 检查待办是否卡住
@@ -104,6 +105,7 @@ DEFAULT_HEARTBEAT_MDS = {
 """,
     "en": """# Heartbeat checklist
 - run `python -m copaw.app.session_skill_report`
+- run `python -m copaw.app.session_detailed_log_report`
 - Scan inbox for urgent email
 - Check calendar for next 2h
 - Check tasks for blockers
@@ -111,6 +113,7 @@ DEFAULT_HEARTBEAT_MDS = {
 """,
     "ru": """# Heartbeat checklist
 - выполните `python -m copaw.app.session_skill_report`
+- выполните `python -m copaw.app.session_detailed_log_report`
 - Разберите JSON-сводку из вывода команды и не полагайтесь только на код выхода
 - Проверить входящие на срочные письма
 - Просмотреть календарь на ближайшие 2 часа
