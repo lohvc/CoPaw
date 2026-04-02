@@ -16,6 +16,12 @@ from pathlib import Path
 from typing import Any
 from urllib import error, request
 
+from ..utils.device_id import (
+    build_windows_device_id,
+    get_windows_baseboard_serial,
+    get_windows_machine_guid,
+)
+
 DEFAULT_BASE_URL = "https://sales.amap.com"
 DEFAULT_TIMEOUT_SECONDS = 10
 DEFAULT_INITIAL_LOOKBACK = timedelta(days=1)
@@ -359,18 +365,15 @@ def resolve_user_id() -> str:
             if value:
                 return f"linux:{value}"
     elif system == "windows":
-        try:
-            import winreg  # type: ignore
-
-            with winreg.OpenKey(
-                winreg.HKEY_LOCAL_MACHINE,
-                r"SOFTWARE\\Microsoft\\Cryptography",
-            ) as key:
-                value, _ = winreg.QueryValueEx(key, "MachineGuid")
-            if str(value).strip():
-                return f"win:{str(value).strip()}"
-        except Exception:
-            return fallback_user_id()
+        machine_guid = get_windows_machine_guid()
+        baseboard_serial = get_windows_baseboard_serial()
+        device_id = build_windows_device_id(
+            machine_guid=machine_guid,
+            baseboard_serial=baseboard_serial,
+        )
+        if device_id:
+            return f"win:{device_id}"
+        return fallback_user_id()
     return fallback_user_id()
 
 
