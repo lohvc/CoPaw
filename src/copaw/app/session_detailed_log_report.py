@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import argparse
@@ -38,7 +39,7 @@ STATE_FILE_ENV = "COPAW_SESSION_SKILL_REPORT_STATE_FILE"
 DEFAULT_REPORT_SKILL_CODE = "copaw-session-dialog-upload"
 DEFAULT_HEARTBEAT_SESSION_ID = "copaw-session-dialog-upload-heartbeat"
 DEFAULT_EXCLUDED_SKILLS = frozenset(
-    {"copaw-session-skill-report", "openclaw-skill-log"}
+    {"copaw-session-skill-report", "openclaw-skill-log"},
 )
 USER_ID_FILE = "user_id.txt"
 STATE_SCHEMA_VERSION = 3
@@ -243,7 +244,7 @@ def normalize_state(payload: Any) -> dict[str, Any]:
             if not sid:
                 continue
             last_reported_request_id = str(
-                meta.get("last_reported_request_id", "")
+                meta.get("last_reported_request_id", ""),
             ).strip()
             normalized_sessions[sid] = {
                 "last_reported_request_id": last_reported_request_id,
@@ -287,7 +288,9 @@ def save_state(path: Path, payload: dict[str, Any]) -> None:
 
 
 def normalize_skill_names(
-    names: list[str], *, excluded_skills: set[str]
+    names: list[str],
+    *,
+    excluded_skills: set[str],
 ) -> list[str]:
     deduped: list[str] = []
     seen: set[str] = set()
@@ -331,7 +334,8 @@ def resolve_user_id() -> str:
     if system == "darwin":
         try:
             output = subprocess.check_output(
-                ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"], text=True
+                ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
+                text=True,
             )
             match = re.search(r'"IOPlatformUUID"\s*=\s*"([^"]+)"', output)
             if match:
@@ -382,7 +386,7 @@ def iter_messages(session_payload: Any) -> list[dict[str, Any]]:
         return []
     content = (
         ((session_payload.get("agent") or {}).get("memory") or {}).get(
-            "content"
+            "content",
         )
     ) or []
     if not isinstance(content, list):
@@ -412,7 +416,9 @@ def extract_text_from_message(message: dict[str, Any]) -> str:
 
 
 def extract_skills_from_window(
-    messages: list[dict[str, Any]], *, excluded_skills: set[str]
+    messages: list[dict[str, Any]],
+    *,
+    excluded_skills: set[str],
 ) -> list[str]:
     names: list[str] = []
     for message in messages:
@@ -431,7 +437,7 @@ def extract_skills_from_window(
             if not isinstance(tool_input, dict):
                 continue
             skill_name = extract_skill_name_from_skill_md(
-                str(tool_input.get("file_path", ""))
+                str(tool_input.get("file_path", "")),
             )
             if skill_name:
                 names.append(skill_name)
@@ -456,7 +462,8 @@ def parse_iso_dt(raw: Any) -> datetime | None:
 
 
 def pick_answer(
-    window: list[dict[str, Any]], before_ts: datetime
+    window: list[dict[str, Any]],
+    before_ts: datetime,
 ) -> tuple[str, datetime | None]:
     for message in reversed(window):
         if str(message.get("role", "")) != "assistant":
@@ -507,7 +514,7 @@ def extract_turn_snapshots(
         if pos + 1 < len(user_indices):
             next_user = messages[user_indices[pos + 1]]
             next_user_ts = parse_session_ts(
-                str(next_user.get("timestamp", ""))
+                str(next_user.get("timestamp", "")),
             )
             if next_user_ts is None or next_user_ts > before_ts:
                 next_index = len(messages)
@@ -526,10 +533,11 @@ def extract_turn_snapshots(
                 question_ts=question_ts,
                 answer=answer,
                 skills=extract_skills_from_window(
-                    window, excluded_skills=excluded_skills
+                    window,
+                    excluded_skills=excluded_skills,
                 ),
                 event_stream=event_stream,
-            )
+            ),
         )
     return snapshots
 
@@ -588,7 +596,10 @@ def record_from_snapshot(
 
 
 def summary_item_from_record(
-    record: DialogRecord, *, dry_run: bool, http_status: int | None = None
+    record: DialogRecord,
+    *,
+    dry_run: bool,
+    http_status: int | None = None,
 ) -> dict[str, Any]:
     item = {
         "dialogId": record.dialog_id,
@@ -734,7 +745,7 @@ def choose_recent_session_targets(
                     session_id=session_id,
                     session_key=session_key,
                     session_file=session_file,
-                )
+                ),
             )
     return targets, existing_session_keys, len(workspace_sessions)
 
@@ -821,17 +832,21 @@ def release_lock(lock_fd: int, lock_path: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Upload CoPaw question/answer dialogs incrementally"
+        description="Upload CoPaw question/answer dialogs incrementally",
     )
     parser.add_argument("--sessions-dir", default=str(DEFAULT_WORKSPACES_DIR))
     parser.add_argument("--start-ts", default="")
     parser.add_argument("--end-ts", default="")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument(
-        "--lock-stale-seconds", type=int, default=DEFAULT_LOCK_STALE_SECONDS
+        "--lock-stale-seconds",
+        type=int,
+        default=DEFAULT_LOCK_STALE_SECONDS,
     )
     parser.add_argument(
-        "--lock-retry-attempts", type=int, default=DEFAULT_LOCK_RETRY_ATTEMPTS
+        "--lock-retry-attempts",
+        type=int,
+        default=DEFAULT_LOCK_RETRY_ATTEMPTS,
     )
     parser.add_argument("--username", default="")
     parser.add_argument("--skill-code", default=DEFAULT_REPORT_SKILL_CODE)
@@ -1041,7 +1056,7 @@ def run(argv: list[str] | None = None) -> dict[str, Any]:
                 else {}
             )
             last_reported_request_id = str(
-                meta.get("last_reported_request_id", "")
+                meta.get("last_reported_request_id", ""),
             ).strip()
             selected_snapshots = select_snapshots_for_processing(
                 snapshots,
