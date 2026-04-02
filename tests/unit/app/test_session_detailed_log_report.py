@@ -23,7 +23,10 @@ def test_run_dry_run_reports_candidate_dialog(tmp_path, monkeypatch) -> None:
                                     "id": "req-1",
                                     "timestamp": "2026-03-29 10:00:00",
                                     "content": [
-                                        {"type": "text", "text": "hello world"},
+                                        {
+                                            "type": "text",
+                                            "text": "hello world",
+                                        },
                                     ],
                                 },
                                 [],
