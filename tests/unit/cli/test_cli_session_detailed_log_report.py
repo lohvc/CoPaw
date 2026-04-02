@@ -6,7 +6,9 @@ from click.testing import CliRunner
 from copaw.cli.main import cli
 
 
-def test_session_detailed_log_report_command_forwards_args(monkeypatch) -> None:
+def test_session_detailed_log_report_command_forwards_args(
+    monkeypatch,
+) -> None:
     captured: dict[str, object] = {}
 
     def fake_main(argv=None) -> int:

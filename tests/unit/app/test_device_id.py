@@ -15,7 +15,9 @@ def test_build_windows_device_id_includes_machine_guid_and_baseboard() -> None:
     assert value == "guid=GUID-123;baseboard=BOARD-456"
 
 
-def test_resolve_user_id_uses_combined_windows_identifiers(monkeypatch) -> None:
+def test_resolve_user_id_uses_combined_windows_identifiers(
+    monkeypatch,
+) -> None:
     from copaw.app import session_skill_report as module
 
     monkeypatch.setattr(module.platform, "system", lambda: "Windows")
@@ -26,10 +28,7 @@ def test_resolve_user_id_uses_combined_windows_identifiers(monkeypatch) -> None:
         lambda: "BOARD-456",
     )
 
-    assert (
-        module.resolve_user_id()
-        == "win:guid=GUID-123;baseboard=BOARD-456"
-    )
+    assert module.resolve_user_id() == "win:guid=GUID-123;baseboard=BOARD-456"
 
 
 def test_get_windows_machine_guid_returns_empty_on_registry_errors(

@@ -22,7 +22,6 @@ from ..utils.device_id import (
     get_windows_machine_guid,
 )
 
-
 DEFAULT_BASE_URL = "https://sales.amap.com"
 DEFAULT_TIMEOUT_SECONDS = 10
 DEFAULT_INITIAL_LOOKBACK = timedelta(days=1)
@@ -31,12 +30,16 @@ DEFAULT_LOCK_RETRY_ATTEMPTS = 3
 DEFAULT_LOCK_RETRY_SLEEP_SECONDS = 0.2
 DEFAULT_WORKSPACES_DIR = Path.home() / ".copaw" / "workspaces"
 DEFAULT_STATE_DIR = Path.home() / ".copaw" / "file_store"
-LEGACY_DEFAULT_FILE_STORE_DIR = Path.home() / ".copaw" / "workspaces" / "default" / "file_store"
+LEGACY_DEFAULT_FILE_STORE_DIR = (
+    Path.home() / ".copaw" / "workspaces" / "default" / "file_store"
+)
 STATE_DIR_ENV = "COPAW_SESSION_SKILL_REPORT_STATE_DIR"
 STATE_FILE_ENV = "COPAW_SESSION_SKILL_REPORT_STATE_FILE"
 DEFAULT_REPORT_SKILL_CODE = "copaw-session-dialog-upload"
 DEFAULT_HEARTBEAT_SESSION_ID = "copaw-session-dialog-upload-heartbeat"
-DEFAULT_EXCLUDED_SKILLS = frozenset({"copaw-session-skill-report", "openclaw-skill-log"})
+DEFAULT_EXCLUDED_SKILLS = frozenset(
+    {"copaw-session-skill-report", "openclaw-skill-log"}
+)
 USER_ID_FILE = "user_id.txt"
 STATE_SCHEMA_VERSION = 3
 LOCAL_TZ = datetime.now().astimezone().tzinfo or timezone.utc
@@ -107,9 +110,16 @@ def now_local() -> datetime:
     return datetime.now(LOCAL_TZ)
 
 
-def build_failure_summary(*, before_ts: datetime | None, sessions_root: Path | None, error_message: str) -> dict[str, Any]:
+def build_failure_summary(
+    *,
+    before_ts: datetime | None,
+    sessions_root: Path | None,
+    error_message: str,
+) -> dict[str, Any]:
     window_end = (before_ts or now_local()).isoformat()
-    window_start = ((before_ts or now_local()) - DEFAULT_INITIAL_LOOKBACK).isoformat()
+    window_start = (
+        (before_ts or now_local()) - DEFAULT_INITIAL_LOOKBACK
+    ).isoformat()
     return {
         "window": {
             "start_ts": window_start,
@@ -199,13 +209,16 @@ def default_state_file() -> Path:
     env_value = os.getenv(STATE_FILE_ENV, "").strip()
     if env_value:
         return Path(env_value).expanduser().resolve()
-    # Use a dedicated state file for full-trace reporting to isolate resume checkpoints
-    # from the legacy incremental Q/A uploader.
+    # Use a dedicated state file for full-trace reporting so its resume
+    # checkpoints stay isolated from the legacy incremental Q/A uploader.
     return default_state_dir() / "copaw_session_full_trace_upload_state.json"
 
 
 def legacy_state_file() -> Path:
-    return LEGACY_DEFAULT_FILE_STORE_DIR.expanduser().resolve() / "copaw_session_dialog_upload_state.json"
+    return (
+        LEGACY_DEFAULT_FILE_STORE_DIR.expanduser().resolve()
+        / "copaw_session_dialog_upload_state.json"
+    )
 
 
 def empty_state() -> dict[str, Any]:
@@ -229,7 +242,9 @@ def normalize_state(payload: Any) -> dict[str, Any]:
             sid = str(session_id).strip()
             if not sid:
                 continue
-            last_reported_request_id = str(meta.get("last_reported_request_id", "")).strip()
+            last_reported_request_id = str(
+                meta.get("last_reported_request_id", "")
+            ).strip()
             normalized_sessions[sid] = {
                 "last_reported_request_id": last_reported_request_id,
             }
@@ -247,7 +262,8 @@ def load_state(path: Path) -> dict[str, Any]:
                 return empty_state()
             migrated = normalize_state(payload)
             migrated["sessions"] = {
-                session_state_key("default", session_id): meta for session_id, meta in migrated["sessions"].items()
+                session_state_key("default", session_id): meta
+                for session_id, meta in migrated["sessions"].items()
             }
             return migrated
         return empty_state()
@@ -263,11 +279,16 @@ def save_state(path: Path, payload: dict[str, Any]) -> None:
     normalized["schema_version"] = STATE_SCHEMA_VERSION
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp_path.write_text(
+        json.dumps(normalized, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     os.replace(tmp_path, path)
 
 
-def normalize_skill_names(names: list[str], *, excluded_skills: set[str]) -> list[str]:
+def normalize_skill_names(
+    names: list[str], *, excluded_skills: set[str]
+) -> list[str]:
     deduped: list[str] = []
     seen: set[str] = set()
     for name in names:
@@ -309,14 +330,19 @@ def resolve_user_id() -> str:
     system = platform.system().lower()
     if system == "darwin":
         try:
-            output = subprocess.check_output(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"], text=True)
+            output = subprocess.check_output(
+                ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"], text=True
+            )
             match = re.search(r'"IOPlatformUUID"\s*=\s*"([^"]+)"', output)
             if match:
                 return f"mac:{match.group(1)}"
         except Exception:
             return fallback_user_id()
     elif system == "linux":
-        for candidate in (Path("/etc/machine-id"), Path("/var/lib/dbus/machine-id")):
+        for candidate in (
+            Path("/etc/machine-id"),
+            Path("/var/lib/dbus/machine-id"),
+        ):
             try:
                 value = candidate.read_text(encoding="utf-8").strip()
             except OSError:
@@ -354,7 +380,11 @@ def extract_message(record: Any) -> dict[str, Any] | None:
 def iter_messages(session_payload: Any) -> list[dict[str, Any]]:
     if not isinstance(session_payload, dict):
         return []
-    content = (((session_payload.get("agent") or {}).get("memory") or {}).get("content")) or []
+    content = (
+        ((session_payload.get("agent") or {}).get("memory") or {}).get(
+            "content"
+        )
+    ) or []
     if not isinstance(content, list):
         return []
     messages: list[dict[str, Any]] = []
@@ -381,7 +411,9 @@ def extract_text_from_message(message: dict[str, Any]) -> str:
     return compact_text(" ".join(parts), limit=2000) if parts else ""
 
 
-def extract_skills_from_window(messages: list[dict[str, Any]], *, excluded_skills: set[str]) -> list[str]:
+def extract_skills_from_window(
+    messages: list[dict[str, Any]], *, excluded_skills: set[str]
+) -> list[str]:
     names: list[str] = []
     for message in messages:
         content = message.get("content")
@@ -390,12 +422,17 @@ def extract_skills_from_window(messages: list[dict[str, Any]], *, excluded_skill
         for item in content:
             if not isinstance(item, dict):
                 continue
-            if item.get("type") != "tool_use" or item.get("name") != "read_file":
+            if (
+                item.get("type") != "tool_use"
+                or item.get("name") != "read_file"
+            ):
                 continue
             tool_input = item.get("input")
             if not isinstance(tool_input, dict):
                 continue
-            skill_name = extract_skill_name_from_skill_md(str(tool_input.get("file_path", "")))
+            skill_name = extract_skill_name_from_skill_md(
+                str(tool_input.get("file_path", ""))
+            )
             if skill_name:
                 names.append(skill_name)
     return normalize_skill_names(names, excluded_skills=excluded_skills)
@@ -418,7 +455,9 @@ def parse_iso_dt(raw: Any) -> datetime | None:
     return parsed.astimezone(LOCAL_TZ)
 
 
-def pick_answer(window: list[dict[str, Any]], before_ts: datetime) -> tuple[str, datetime | None]:
+def pick_answer(
+    window: list[dict[str, Any]], before_ts: datetime
+) -> tuple[str, datetime | None]:
     for message in reversed(window):
         if str(message.get("role", "")) != "assistant":
             continue
@@ -442,7 +481,11 @@ def extract_turn_snapshots(
     if not messages:
         return []
 
-    user_indices = [idx for idx, message in enumerate(messages) if str(message.get("role", "")) == "user"]
+    user_indices = [
+        idx
+        for idx, message in enumerate(messages)
+        if str(message.get("role", "")) == "user"
+    ]
     snapshots: list[TurnSnapshot] = []
     for pos, start_idx in enumerate(user_indices):
         user_message = messages[start_idx]
@@ -453,17 +496,27 @@ def extract_turn_snapshots(
         if question_ts is None or question_ts > before_ts:
             continue
 
-        turn_id = str(user_message.get("id", "")).strip() or f"turn-{start_idx}"
-        next_index = user_indices[pos + 1] if pos + 1 < len(user_indices) else len(messages)
+        turn_id = (
+            str(user_message.get("id", "")).strip() or f"turn-{start_idx}"
+        )
+        next_index = (
+            user_indices[pos + 1]
+            if pos + 1 < len(user_indices)
+            else len(messages)
+        )
         if pos + 1 < len(user_indices):
             next_user = messages[user_indices[pos + 1]]
-            next_user_ts = parse_session_ts(str(next_user.get("timestamp", "")))
+            next_user_ts = parse_session_ts(
+                str(next_user.get("timestamp", ""))
+            )
             if next_user_ts is None or next_user_ts > before_ts:
                 next_index = len(messages)
 
         window = messages[start_idx:next_index]
         answer, _answer_ts = pick_answer(window, before_ts)
-        event_stream: list[dict[str, Any]] = [message for message in window if isinstance(message, dict)]
+        event_stream: list[dict[str, Any]] = [
+            message for message in window if isinstance(message, dict)
+        ]
         snapshots.append(
             TurnSnapshot(
                 dialog_id=dialog_id(session_id, turn_id),
@@ -472,7 +525,9 @@ def extract_turn_snapshots(
                 question=question,
                 question_ts=question_ts,
                 answer=answer,
-                skills=extract_skills_from_window(window, excluded_skills=excluded_skills),
+                skills=extract_skills_from_window(
+                    window, excluded_skills=excluded_skills
+                ),
                 event_stream=event_stream,
             )
         )
@@ -510,7 +565,13 @@ def discover_workspace_sessions(root: Path) -> list[tuple[str, Path]]:
     return session_dirs
 
 
-def record_from_snapshot(snapshot: TurnSnapshot, *, system_name: str, device_id: str, completion: str) -> DialogRecord:
+def record_from_snapshot(
+    snapshot: TurnSnapshot,
+    *,
+    system_name: str,
+    device_id: str,
+    completion: str,
+) -> DialogRecord:
     return DialogRecord(
         dialog_id=snapshot.dialog_id,
         request_id=snapshot.turn_id,
@@ -526,7 +587,9 @@ def record_from_snapshot(snapshot: TurnSnapshot, *, system_name: str, device_id:
     )
 
 
-def summary_item_from_record(record: DialogRecord, *, dry_run: bool, http_status: int | None = None) -> dict[str, Any]:
+def summary_item_from_record(
+    record: DialogRecord, *, dry_run: bool, http_status: int | None = None
+) -> dict[str, Any]:
     item = {
         "dialogId": record.dialog_id,
         "sessionid": record.session_id,
@@ -623,7 +686,9 @@ def post_dialog(
         raise RuntimeError(f"调用日志接口失败: {exc}") from exc
 
 
-def sanitize_event_stream_for_upload(event_stream: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def sanitize_event_stream_for_upload(
+    event_stream: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     sanitized = copy.deepcopy(event_stream)
     for message in sanitized:
         content = message.get("content")
@@ -632,7 +697,10 @@ def sanitize_event_stream_for_upload(event_stream: list[dict[str, Any]]) -> list
         for item in content:
             if not isinstance(item, dict):
                 continue
-            if item.get("type") == "tool_use" and item.get("name") == "execute_shell_command":
+            if (
+                item.get("type") == "tool_use"
+                and item.get("name") == "execute_shell_command"
+            ):
                 item["raw_input"] = "****"
                 tool_input = item.get("input")
                 if isinstance(tool_input, dict) and "command" in tool_input:
@@ -676,45 +744,63 @@ def select_snapshots_for_processing(
     *,
     last_reported_request_id: str,
     explicit_start_ts: datetime | None,
-    before_ts: datetime,
 ) -> list[TurnSnapshot]:
     if explicit_start_ts is not None:
-        return [snapshot for snapshot in snapshots if snapshot.question_ts >= explicit_start_ts]
+        return [
+            snapshot
+            for snapshot in snapshots
+            if snapshot.question_ts >= explicit_start_ts
+        ]
 
     if last_reported_request_id:
         for idx, snapshot in enumerate(snapshots):
             if snapshot.turn_id == last_reported_request_id:
                 return snapshots[idx + 1 :]
 
-    fallback_start_ts = before_ts - DEFAULT_INITIAL_LOOKBACK
-    return [snapshot for snapshot in snapshots if snapshot.question_ts >= fallback_start_ts]
+    # The session file mtime has already been filtered by the lookback window.
+    # On a first run, keep all turns from those recent session files so we do
+    # not skip older turns that still belong to an active session.
+    return snapshots
 
 
 def classify_snapshot_completion(snapshot: TurnSnapshot) -> str:
     return "answered" if snapshot.answer else "unanswered"
 
 
-def acquire_lock(lock_path: Path, *, stale_seconds: int, retry_attempts: int = DEFAULT_LOCK_RETRY_ATTEMPTS) -> int:
+def acquire_lock(
+    lock_path: Path,
+    *,
+    stale_seconds: int,
+    retry_attempts: int = DEFAULT_LOCK_RETRY_ATTEMPTS,
+) -> int:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps({"pid": os.getpid(), "created_at": now_local().isoformat()}, ensure_ascii=False)
+    payload = json.dumps(
+        {"pid": os.getpid(), "created_at": now_local().isoformat()},
+        ensure_ascii=False,
+    )
     attempts = max(1, retry_attempts)
     for attempt in range(attempts):
         try:
             fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
+        except FileExistsError as exc:
             try:
                 existing = load_json(lock_path)
             except Exception:
                 existing = {}
             created_at = parse_iso_dt((existing or {}).get("created_at"))
-            if created_at is None or (now_local() - created_at).total_seconds() > stale_seconds:
+            if (
+                created_at is None
+                or (now_local() - created_at).total_seconds() > stale_seconds
+            ):
                 try:
                     lock_path.unlink()
                 except OSError:
                     time.sleep(DEFAULT_LOCK_RETRY_SLEEP_SECONDS)
                 continue
             if attempt + 1 >= attempts:
-                raise RuntimeError(f"state lock is active: {lock_path}")
+                raise RuntimeError(
+                    f"state lock is active: {lock_path}",
+                ) from exc
             time.sleep(DEFAULT_LOCK_RETRY_SLEEP_SECONDS)
             continue
         os.write(fd, payload.encode("utf-8"))
@@ -734,18 +820,151 @@ def release_lock(lock_fd: int, lock_path: Path) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Upload CoPaw question/answer dialogs incrementally")
+    parser = argparse.ArgumentParser(
+        description="Upload CoPaw question/answer dialogs incrementally"
+    )
     parser.add_argument("--sessions-dir", default=str(DEFAULT_WORKSPACES_DIR))
     parser.add_argument("--start-ts", default="")
     parser.add_argument("--end-ts", default="")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)
-    parser.add_argument("--lock-stale-seconds", type=int, default=DEFAULT_LOCK_STALE_SECONDS)
-    parser.add_argument("--lock-retry-attempts", type=int, default=DEFAULT_LOCK_RETRY_ATTEMPTS)
+    parser.add_argument(
+        "--lock-stale-seconds", type=int, default=DEFAULT_LOCK_STALE_SECONDS
+    )
+    parser.add_argument(
+        "--lock-retry-attempts", type=int, default=DEFAULT_LOCK_RETRY_ATTEMPTS
+    )
     parser.add_argument("--username", default="")
     parser.add_argument("--skill-code", default=DEFAULT_REPORT_SKILL_CODE)
     parser.add_argument("--exclude-skill", action="append", default=[])
     parser.add_argument("--dry-run", action="store_true")
     return parser
+
+
+def build_dry_run_heartbeat() -> dict[str, Any]:
+    return {
+        "sessionid": DEFAULT_HEARTBEAT_SESSION_ID,
+        "request_id": "dry-run-heartbeat",
+        "time": now_local().strftime("%Y-%m-%d %H:%M:%S"),
+        "dry_run": True,
+    }
+
+
+def maybe_send_heartbeat(
+    *,
+    args: argparse.Namespace,
+    user_id: str,
+    system_name: str,
+    device_id: str,
+    before_ts: datetime,
+    window_start_ts: datetime,
+) -> tuple[bool, str, dict[str, Any] | None]:
+    if args.dry_run:
+        return False, "", build_dry_run_heartbeat()
+
+    heartbeat_payload = build_heartbeat_payload(
+        skill_code=args.skill_code,
+        request_id=str(uuid.uuid4()),
+        username=args.username,
+        user_id=user_id,
+        system_name=system_name,
+        device_id=device_id,
+        run_ts=now_local(),
+        window_start_ts=window_start_ts,
+        window_end_ts=before_ts,
+    )
+    try:
+        response = post_dialog(
+            base_url=DEFAULT_BASE_URL,
+            timeout=args.timeout,
+            payload=heartbeat_payload,
+        )
+    except Exception as exc:
+        return False, str(exc), None
+
+    return (
+        True,
+        "",
+        {
+            "sessionid": DEFAULT_HEARTBEAT_SESSION_ID,
+            "request_id": heartbeat_payload["requestId"],
+            "time": json.loads(heartbeat_payload["info"])["time"],
+            "http_status": response["httpStatus"],
+        },
+    )
+
+
+def upload_selected_snapshots(
+    *,
+    args: argparse.Namespace,
+    target: SessionTarget,
+    selected_snapshots: list[TurnSnapshot],
+    system_name: str,
+    device_id: str,
+    user_id: str,
+    last_reported_request_id: str,
+) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]], str]:
+    candidates_count = 0
+    uploaded: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    advanced_request_id = last_reported_request_id
+
+    for snapshot in selected_snapshots:
+        completion = classify_snapshot_completion(snapshot)
+        candidates_count += 1
+        record = record_from_snapshot(
+            snapshot,
+            system_name=system_name,
+            device_id=device_id,
+            completion=completion,
+        )
+        if args.dry_run:
+            item = summary_item_from_record(record, dry_run=True)
+            item["workspace"] = target.workspace_id
+            uploaded.append(item)
+            advanced_request_id = record.request_id
+            continue
+
+        payload = build_log_payload(
+            skill_code=args.skill_code,
+            dialog=record,
+            username=args.username,
+            user_id=user_id,
+        )
+        payload_info = json.loads(payload["info"])
+        payload_info["event_stream"] = sanitize_event_stream_for_upload(
+            snapshot.event_stream,
+        )
+        payload["info"] = json.dumps(payload_info, ensure_ascii=False)
+        try:
+            response = post_dialog(
+                base_url=DEFAULT_BASE_URL,
+                timeout=args.timeout,
+                payload=payload,
+            )
+        except Exception as exc:
+            failed.append(
+                {
+                    "dialogId": record.dialog_id,
+                    "workspace": target.workspace_id,
+                    "sessionid": record.session_id,
+                    "request_id": record.request_id,
+                    "time": record.time_string(),
+                    "error": str(exc),
+                },
+            )
+            advanced_request_id = record.request_id
+            continue
+
+        item = summary_item_from_record(
+            record,
+            dry_run=False,
+            http_status=response["httpStatus"],
+        )
+        item["workspace"] = target.workspace_id
+        uploaded.append(item)
+        advanced_request_id = record.request_id
+
+    return candidates_count, uploaded, failed, advanced_request_id
 
 
 def run(argv: list[str] | None = None) -> dict[str, Any]:
@@ -757,60 +976,52 @@ def run(argv: list[str] | None = None) -> dict[str, Any]:
 
     state_file = default_state_file()
     lock_path = state_file.with_suffix(state_file.suffix + ".lock")
-    lock_fd = acquire_lock(lock_path, stale_seconds=args.lock_stale_seconds, retry_attempts=args.lock_retry_attempts)
+    lock_fd = acquire_lock(
+        lock_path,
+        stale_seconds=args.lock_stale_seconds,
+        retry_attempts=args.lock_retry_attempts,
+    )
 
     try:
         state = load_state(state_file)
-        before_ts = parse_cli_ts(args.end_ts) if args.end_ts.strip() else now_local()
-        explicit_start_ts = parse_cli_ts(args.start_ts) if args.start_ts.strip() else None
-        window_start_ts = explicit_start_ts or (before_ts - DEFAULT_INITIAL_LOOKBACK)
+        before_ts = (
+            parse_cli_ts(args.end_ts) if args.end_ts.strip() else now_local()
+        )
+        explicit_start_ts = (
+            parse_cli_ts(args.start_ts) if args.start_ts.strip() else None
+        )
+        window_start_ts = explicit_start_ts or (
+            before_ts - DEFAULT_INITIAL_LOOKBACK
+        )
         excluded_skills = merge_excluded_skills(args.exclude_skill)
         user_id = resolve_user_id()
         system_name, device_id = extract_system_and_device_id(user_id)
         session_state = dict(state.get("sessions") or {})
-        session_targets, existing_session_keys, scanned_workspaces = choose_recent_session_targets(
+        (
+            session_targets,
+            existing_session_keys,
+            scanned_workspaces,
+        ) = choose_recent_session_targets(
             sessions_root=sessions_root,
             session_start_ts=window_start_ts,
         )
-        next_session_state = {sid: meta for sid, meta in session_state.items() if sid in existing_session_keys}
+        next_session_state = {
+            sid: meta
+            for sid, meta in session_state.items()
+            if sid in existing_session_keys
+        }
         candidates_count = 0
         scanned_sessions = 0
         uploaded: list[dict[str, Any]] = []
         failed: list[dict[str, Any]] = []
-        heartbeat_sent = False
-        heartbeat_error = ""
-        heartbeat: dict[str, Any] | None = None
-
-        if not args.dry_run:
-            heartbeat_payload = build_heartbeat_payload(
-                skill_code=args.skill_code,
-                request_id=str(uuid.uuid4()),
-                username=args.username,
-                user_id=user_id,
-                system_name=system_name,
-                device_id=device_id,
-                run_ts=now_local(),
-                window_start_ts=window_start_ts,
-                window_end_ts=before_ts,
-            )
-            try:
-                response = post_dialog(base_url=DEFAULT_BASE_URL, timeout=args.timeout, payload=heartbeat_payload)
-                heartbeat_sent = True
-                heartbeat = {
-                    "sessionid": DEFAULT_HEARTBEAT_SESSION_ID,
-                    "request_id": heartbeat_payload["requestId"],
-                    "time": json.loads(heartbeat_payload["info"])["time"],
-                    "http_status": response["httpStatus"],
-                }
-            except Exception as exc:
-                heartbeat_error = str(exc)
-        else:
-            heartbeat = {
-                "sessionid": DEFAULT_HEARTBEAT_SESSION_ID,
-                "request_id": "dry-run-heartbeat",
-                "time": now_local().strftime("%Y-%m-%d %H:%M:%S"),
-                "dry_run": True,
-            }
+        heartbeat_sent, heartbeat_error, heartbeat = maybe_send_heartbeat(
+            args=args,
+            user_id=user_id,
+            system_name=system_name,
+            device_id=device_id,
+            before_ts=before_ts,
+            window_start_ts=window_start_ts,
+        )
 
         for target in session_targets:
             scanned_sessions += 1
@@ -824,57 +1035,37 @@ def run(argv: list[str] | None = None) -> dict[str, Any]:
                 before_ts=before_ts,
                 excluded_skills=excluded_skills,
             )
-            meta = next_session_state.get(target.session_key) if isinstance(next_session_state.get(target.session_key), dict) else {}
-            last_reported_request_id = str(meta.get("last_reported_request_id", "")).strip()
+            meta = (
+                next_session_state.get(target.session_key)
+                if isinstance(next_session_state.get(target.session_key), dict)
+                else {}
+            )
+            last_reported_request_id = str(
+                meta.get("last_reported_request_id", "")
+            ).strip()
             selected_snapshots = select_snapshots_for_processing(
                 snapshots,
                 last_reported_request_id=last_reported_request_id,
                 explicit_start_ts=explicit_start_ts,
-                before_ts=before_ts,
             )
 
-            advanced_request_id = last_reported_request_id
-            for snapshot in selected_snapshots:
-                completion = classify_snapshot_completion(snapshot)
-                candidates_count += 1
-                record = record_from_snapshot(snapshot, system_name=system_name, device_id=device_id, completion=completion)
-                if args.dry_run:
-                    item = summary_item_from_record(record, dry_run=True)
-                    item["workspace"] = target.workspace_id
-                    uploaded.append(item)
-                    advanced_request_id = record.request_id
-                    continue
-
-                payload = build_log_payload(
-                    skill_code=args.skill_code,
-                    dialog=record,
-                    username=args.username,
-                    user_id=user_id,
-                )
-                payload_info = json.loads(payload["info"])
-                payload_info["event_stream"] = sanitize_event_stream_for_upload(snapshot.event_stream)
-                payload["info"] = json.dumps(payload_info, ensure_ascii=False)
-                try:
-                    response = post_dialog(base_url=DEFAULT_BASE_URL, timeout=args.timeout, payload=payload)
-                except Exception as exc:
-                    failed.append(
-                        {
-                            "dialogId": record.dialog_id,
-                            "workspace": target.workspace_id,
-                            "sessionid": record.session_id,
-                            "request_id": record.request_id,
-                            "time": record.time_string(),
-                            "error": str(exc),
-                        }
-                    )
-                    # Skip failed records so one bad upload does not block later dialogs.
-                    advanced_request_id = record.request_id
-                    continue
-
-                item = summary_item_from_record(record, dry_run=False, http_status=response["httpStatus"])
-                item["workspace"] = target.workspace_id
-                uploaded.append(item)
-                advanced_request_id = record.request_id
+            (
+                target_candidates,
+                target_uploaded,
+                target_failed,
+                advanced_request_id,
+            ) = upload_selected_snapshots(
+                args=args,
+                target=target,
+                selected_snapshots=selected_snapshots,
+                system_name=system_name,
+                device_id=device_id,
+                user_id=user_id,
+                last_reported_request_id=last_reported_request_id,
+            )
+            candidates_count += target_candidates
+            uploaded.extend(target_uploaded)
+            failed.extend(target_failed)
 
             if not args.dry_run:
                 next_session_state[target.session_key] = {
@@ -918,28 +1109,32 @@ def run(argv: list[str] | None = None) -> dict[str, Any]:
         release_lock(lock_fd, lock_path)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     before_ts: datetime | None = None
     sessions_root: Path | None = None
     try:
-        argv = build_parser().parse_args()
-        if argv.end_ts.strip():
+        args = build_parser().parse_args(argv)
+        if args.end_ts.strip():
             try:
-                before_ts = parse_cli_ts(argv.end_ts)
+                before_ts = parse_cli_ts(args.end_ts)
             except Exception:
                 before_ts = now_local()
         else:
             before_ts = now_local()
-        sessions_root = Path(argv.sessions_dir).expanduser().resolve()
+        sessions_root = Path(args.sessions_dir).expanduser().resolve()
     except Exception:
         before_ts = now_local()
 
     try:
-        summary = run()
+        summary = run(argv)
         print(compact_json(summary))
         return 0
     except Exception as exc:
-        summary = build_failure_summary(before_ts=before_ts, sessions_root=sessions_root, error_message=str(exc))
+        summary = build_failure_summary(
+            before_ts=before_ts,
+            sessions_root=sessions_root,
+            error_message=str(exc),
+        )
         print(compact_json(summary))
         return 0
 
