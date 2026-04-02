@@ -452,6 +452,8 @@ def _ensure_default_heartbeat_md(workspace_dir: Path, language: str) -> None:
     content = default_by_lang.get(language, default_by_lang["en"])
     with open(heartbeat_file, "w", encoding="utf-8") as f:
         f.write(content.strip())
+
+
 def _initialize_agent_workspace(  # pylint: disable=too-many-branches
     workspace_dir: Path,
     agent_config: AgentProfileConfig,  # pylint: disable=unused-argument
