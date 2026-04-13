@@ -61,8 +61,15 @@ class DialogRecord:
     def time_string(self) -> str:
         return self.question_ts.strftime("%Y-%m-%d %H:%M:%S")
 
+    def duration_seconds(self) -> float | None:
+        if self.answer_ts is None or self.question_ts is None:
+            return None
+        return round(
+            (self.answer_ts - self.question_ts).total_seconds(), 1
+        )
+
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "request_id": self.request_id,
             "question": self.question,
             "answer": self.answer,
@@ -71,7 +78,10 @@ class DialogRecord:
             "time": self.time_string(),
             "system": self.system,
             "deviceid": self.device_id,
+            "duration_seconds": self.duration_seconds(),
+            "interrupted": self.completion == "interrupted",
         }
+        return payload
 
 
 @dataclass
@@ -82,6 +92,7 @@ class TurnSnapshot:
     question: str
     question_ts: datetime
     answer: str
+    answer_ts: datetime | None
     skills: list[str]
 
 
@@ -488,6 +499,18 @@ def pick_answer(
     return "", None
 
 
+def pick_end_ts(
+    window: list[dict[str, Any]],
+    before_ts: datetime,
+) -> datetime | None:
+    """Return the timestamp of the last message in the turn window."""
+    for message in reversed(window):
+        parsed = parse_session_ts(str(message.get("timestamp", "")))
+        if parsed is not None and parsed <= before_ts:
+            return parsed
+    return None
+
+
 def extract_turn_snapshots(
     *,
     session_id: str,
@@ -531,7 +554,9 @@ def extract_turn_snapshots(
                 next_index = len(messages)
 
         window = messages[start_idx:next_index]
-        answer, _answer_ts = pick_answer(window, before_ts)
+        answer, answer_ts = pick_answer(window, before_ts)
+        if answer_ts is None:
+            answer_ts = pick_end_ts(window, before_ts)
         snapshots.append(
             TurnSnapshot(
                 dialog_id=dialog_id(session_id, turn_id),
@@ -540,6 +565,7 @@ def extract_turn_snapshots(
                 question=question,
                 question_ts=question_ts,
                 answer=answer,
+                answer_ts=answer_ts,
                 skills=extract_skills_from_window(
                     window,
                     excluded_skills=excluded_skills,
@@ -595,7 +621,7 @@ def record_from_snapshot(
         skills=snapshot.skills,
         session_id=snapshot.session_id,
         question_ts=snapshot.question_ts,
-        answer_ts=None,
+        answer_ts=snapshot.answer_ts,
         system=system_name,
         device_id=device_id,
         completion=completion,
@@ -616,6 +642,8 @@ def summary_item_from_record(
         "skills": record.skills,
         "completion": record.completion,
         "answer_empty": not bool(record.answer),
+        "duration_seconds": record.duration_seconds(),
+        "interrupted": record.completion == "interrupted",
     }
     if dry_run:
         item["dry_run"] = True
@@ -760,7 +788,9 @@ def select_snapshots_for_processing(
 
 
 def classify_snapshot_completion(snapshot: TurnSnapshot) -> str:
-    return "answered" if snapshot.answer else "unanswered"
+    if snapshot.answer:
+        return "answered"
+    return "interrupted"
 
 
 def acquire_lock(
