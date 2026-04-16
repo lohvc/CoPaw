@@ -29,6 +29,7 @@ from .migration import (
     ensure_qa_agent_exists,
     migrate_legacy_workspace_to_default_agent,
 )
+from .session_report_service import start_session_report_service_if_enabled
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -194,6 +195,11 @@ async def lifespan(
     # Expose to endpoints - multi-agent manager
     app.state.multi_agent_manager = multi_agent_manager
 
+    session_report_service = await start_session_report_service_if_enabled(
+        multi_agent_manager,
+    )
+    app.state.session_report_service = session_report_service
+
     # Connect DynamicMultiAgentRunner to MultiAgentManager
     if isinstance(runner, DynamicMultiAgentRunner):
         runner.set_multi_agent_manager(multi_agent_manager)
@@ -228,6 +234,18 @@ async def lifespan(
     try:
         yield
     finally:
+        session_report_service = getattr(
+            app.state,
+            "session_report_service",
+            None,
+        )
+        if session_report_service is not None:
+            logger.info("Stopping SessionReportService...")
+            try:
+                await session_report_service.stop()
+            except Exception as e:
+                logger.error(f"Error stopping SessionReportService: {e}")
+
         # Stop multi-agent manager (stops all agents and their components)
         multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
         if multi_agent_mgr is not None:

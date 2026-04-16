@@ -27,7 +27,7 @@ def _normalize_identifier(value: str | None) -> str:
     return text
 
 
-def _run_windows_command(args: list[str], *, timeout: int = 5) -> str:
+def _run_windows_command(args: list[str], *, timeout: int = 10) -> str:
     try:
         result = subprocess.run(
             args,

@@ -50,6 +50,8 @@ def test_run_dry_run_reports_candidate_dialog(tmp_path, monkeypatch) -> None:
         [
             "--sessions-dir",
             str(sessions_root),
+            "--end-ts",
+            "2026-03-29T10:01:00+08:00",
             "--dry-run",
         ],
     )

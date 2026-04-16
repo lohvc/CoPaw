@@ -4,6 +4,27 @@ from __future__ import annotations
 import sys
 
 
+def test_run_windows_command_uses_ten_second_timeout(
+    monkeypatch,
+) -> None:
+    from copaw.utils import device_id as module
+
+    observed = {}
+
+    class Completed:
+        returncode = 0
+        stdout = "ok"
+
+    def fake_run(*args, **kwargs):
+        observed["timeout"] = kwargs["timeout"]
+        return Completed()
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    assert module._run_windows_command(["powershell"]) == "ok"
+    assert observed["timeout"] == 10
+
+
 def test_build_windows_device_id_includes_machine_guid_and_baseboard() -> None:
     from copaw.utils import device_id as module
 
