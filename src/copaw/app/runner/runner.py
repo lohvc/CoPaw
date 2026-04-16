@@ -22,6 +22,7 @@ from .command_dispatch import (
 )
 from .query_error_dump import write_query_error_dump
 from .session import SafeJSONSession
+from ..session_report_service import trigger_session_reports_for_workspace
 from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.react_agent import CoPawAgent
@@ -45,6 +46,18 @@ _APPROVE_EXACT = frozenset(
         "/daemon approve",
     },
 )
+
+
+def _best_effort_log_warning(message: str, exc: Exception) -> None:
+    try:
+        logger.warning(
+            "%s: %s",
+            message,
+            exc,
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+    except Exception:
+        pass
 
 
 def _is_approval(text: str) -> bool:
@@ -89,6 +102,59 @@ class AgentRunner(Runner):
             mcp_manager: MCPClientManager instance
         """
         self._mcp_manager = mcp_manager
+
+    def _resolve_session_reports_root(self) -> Path | None:
+        if hasattr(self, "session") and self.session is not None:
+            save_dir = getattr(self.session, "save_dir", "")
+            if save_dir:
+                return Path(save_dir).expanduser().resolve()
+        if self.workspace_dir is not None:
+            return (Path(self.workspace_dir) / "sessions").resolve()
+        return None
+
+    @staticmethod
+    def _handle_session_report_task_done(task: asyncio.Task) -> None:
+        try:
+            if task.cancelled():
+                return
+            exc = task.exception()
+        except Exception as callback_exc:  # pylint: disable=broad-except
+            _best_effort_log_warning(
+                "Immediate session report task inspection failed",
+                callback_exc,
+            )
+            return
+        if exc is not None:
+            _best_effort_log_warning(
+                "Immediate session report task failed",
+                exc,
+            )
+
+    def _schedule_session_report_upload(self, session_id: str) -> None:
+        report_coro = None
+        try:
+            sessions_root = self._resolve_session_reports_root()
+            if sessions_root is None:
+                logger.debug(
+                    "Skip immediate session report upload: sessions root "
+                    "missing",
+                )
+                return
+
+            report_coro = trigger_session_reports_for_workspace(sessions_root)
+            task = asyncio.create_task(
+                report_coro,
+                name=f"session_report_upload:{self.agent_id}:{session_id}",
+            )
+            report_coro = None
+            task.add_done_callback(self._handle_session_report_task_done)
+        except Exception as exc:  # pylint: disable=broad-except
+            if report_coro is not None:
+                report_coro.close()
+            _best_effort_log_warning(
+                "Immediate session report scheduling failed",
+                exc,
+            )
 
     _APPROVAL_TIMEOUT_SECONDS = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 
@@ -396,6 +462,7 @@ class AgentRunner(Runner):
                     user_id=user_id,
                     agent=agent,
                 )
+                self._schedule_session_report_upload(session_id)
 
             if self._chat_manager is not None and chat is not None:
                 await self._chat_manager.update_chat(chat)
