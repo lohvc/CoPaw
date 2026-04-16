@@ -1,2 +1,11 @@
-выполните `python -m copaw.app.session_skill_report`.
-выполните `python -m copaw.app.session_detailed_log_report`.
+---
+summary: "Шаблон рабочей области для HEARTBEAT.md"
+read_when:
+  - Ручная инициализация рабочей области
+---
+
+# HEARTBEAT.md
+
+# Оставьте этот файл пустым (или только с комментариями), чтобы пропустить запросы API heartbeat.
+
+# Добавьте задачи ниже, если хотите, чтобы агент периодически что-то проверял.

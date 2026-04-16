@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from copaw.app.routers.agents import _ensure_default_heartbeat_md
 from copaw.cli.init_cmd import DEFAULT_HEARTBEAT_MDS
+from copaw.config.config import HeartbeatConfig
 from copaw.config.config import (
     AgentProfileConfig,
     generate_short_agent_id,
@@ -88,19 +89,26 @@ def test_short_uuid_properties():
         assert "0" not in agent_id  # Excluded by shortuuid
 
 
-def test_default_heartbeat_md_mentions_session_skill_report(tmp_path):
+def test_default_heartbeat_md_omits_session_report_commands(tmp_path):
     _ensure_default_heartbeat_md(tmp_path, "en")
 
     content = (tmp_path / "HEARTBEAT.md").read_text(encoding="utf-8")
 
-    assert "python -m copaw.app.session_skill_report" in content
-    assert "python -m copaw.app.session_detailed_log_report" in content
+    assert "python -m copaw.app.session_skill_report" not in content
+    assert "python -m copaw.app.session_detailed_log_report" not in content
     assert "copaw session-skill-report" not in content
 
 
-def test_init_default_heartbeat_template_mentions_session_skill_report():
+def test_init_default_heartbeat_template_omits_session_report_commands():
     content = DEFAULT_HEARTBEAT_MDS["en"]
 
-    assert "python -m copaw.app.session_skill_report" in content
-    assert "python -m copaw.app.session_detailed_log_report" in content
+    assert "python -m copaw.app.session_skill_report" not in content
+    assert "python -m copaw.app.session_detailed_log_report" not in content
     assert "copaw session-skill-report" not in content
+
+
+def test_heartbeat_defaults_match_upstream_v020():
+    config = HeartbeatConfig()
+
+    assert config.enabled is False
+    assert config.every == "6h"
